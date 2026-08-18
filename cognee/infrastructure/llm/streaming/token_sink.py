@@ -105,9 +105,13 @@ _active_producer: ContextVar[Optional[object]] = ContextVar("active_producer", d
 class TokenSink:
     """Fan-out channel for answer tokens. Never affects the returned value."""
 
-    def __init__(self, max_buffered_events: int = MAX_BUFFERED_EVENTS) -> None:
+    def __init__(self, max_buffered_events: Optional[int] = None) -> None:
         self._queue: asyncio.Queue = asyncio.Queue()
-        self._max_buffered = max_buffered_events
+        # Read at construction, not bound as a default, so the cap stays one
+        # knob rather than a value frozen at import.
+        self._max_buffered = (
+            MAX_BUFFERED_EVENTS if max_buffered_events is None else max_buffered_events
+        )
         self._owner: Optional[object] = None
         self._emitted = False
         self._detached = False
@@ -121,6 +125,15 @@ class TokenSink:
     def owns(self, producer: Optional[object]) -> bool:
         """Whether this producer is the one whose deltas reach the consumer."""
         return producer is not None and self._owner is producer
+
+    @property
+    def dropped_events(self) -> bool:
+        """Whether the buffer overflowed and preview frames were discarded.
+
+        A consumer that fell behind has silent gaps in what it rendered, so it
+        needs telling to stop trusting the preview and wait for the payload.
+        """
+        return self._dropped
 
     @property
     def emitted_any(self) -> bool:
